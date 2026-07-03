@@ -5,6 +5,7 @@ require('dotenv').config({ quiet: true });
 const authRoutes = require('./routes/authRoutes');
 const projectRoutes = require('./routes/projectRoutes');
 const queueRoutes = require('./routes/queueRoutes');
+const jobRoutes = require('./routes/jobRoutes');
 
 const app = express();
 
@@ -18,5 +19,6 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api', projectRoutes);
 app.use('/api/queues', queueRoutes);
+app.use('/api/jobs', jobRoutes);
 
 module.exports = app;
