@@ -118,13 +118,20 @@ async function handleFailure(job, err) {
   );
 
   if (newAttemptCount >= job.max_attempts) {
-    await pool.query(
-      `UPDATE jobs SET status = 'failed', attempt_count = $1, updated_at = now() WHERE id = $2`,
-      [newAttemptCount, job.id]
-    );
-    console.log(`[${WORKER_LABEL}] Job ${job.id} permanently failed after ${newAttemptCount} attempts`);
-    return;
-  }
+  await pool.query(
+    `UPDATE jobs SET status = 'failed', attempt_count = $1, updated_at = now() WHERE id = $2`,
+    [newAttemptCount, job.id]
+  );
+
+  await pool.query(
+    `INSERT INTO dead_letter_queue (job_id, reason)
+     VALUES ($1, $2)`,
+    [job.id, `Failed after ${newAttemptCount} attempts: ${err.message}`]
+  );
+
+  console.log(`[${WORKER_LABEL}] Job ${job.id} permanently failed after ${newAttemptCount} attempts → moved to DLQ`);
+  return;
+}
 
   const delaySeconds = computeBackoffSeconds(job.strategy_type, job.base_delay_seconds, newAttemptCount);
   const nextRunAt = new Date(Date.now() + delaySeconds * 1000);
