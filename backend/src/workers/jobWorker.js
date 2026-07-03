@@ -95,9 +95,11 @@ function computeBackoffSeconds(strategyType, baseDelay, attemptNumber) {
 }
 
 async function handleSuccess(job, result) {
+  const finalStatus = job.type === 'recurring' ? 'scheduled' : 'completed';
+
   await pool.query(
-    `UPDATE jobs SET status = 'completed', updated_at = now() WHERE id = $1`,
-    [job.id]
+    `UPDATE jobs SET status = $1, updated_at = now() WHERE id = $2`,
+    [finalStatus, job.id]
   );
   await pool.query(
     `INSERT INTO job_executions (job_id, worker_id, attempt_number, status, started_at, finished_at)
