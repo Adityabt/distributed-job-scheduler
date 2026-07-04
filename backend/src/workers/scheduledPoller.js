@@ -52,4 +52,8 @@ async function runPoller() {
   }
 }
 
-runPoller();
+if (require.main === module) {
+  runPoller();
+}
+
+module.exports = { startPoller: runPoller };

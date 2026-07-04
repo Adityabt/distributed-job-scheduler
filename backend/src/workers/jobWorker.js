@@ -198,4 +198,8 @@ async function runLoop() {
   }
 }
 
-runLoop();
+if (require.main === module) {
+  runLoop();
+}
+
+module.exports = { startWorker: runLoop };
