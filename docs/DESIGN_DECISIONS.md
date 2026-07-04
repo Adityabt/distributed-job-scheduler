@@ -1,43 +1,83 @@
-# Design Decisions & Trade-offs
+# Design Decisions — Relay (Distributed Job Scheduler)
 
-## 1. Postgres-only coordination (no Redis/Kafka)
+## Why PostgreSQL over MongoDB
 
-**Decision:** Use PostgreSQL row-locking (`SELECT ... FOR UPDATE SKIP LOCKED`) for atomic job claiming instead of a dedicated message broker.
+The assignment explicitly asks for a normalized relational schema with primary keys,
+foreign keys, indexes, and defined cascading behavior. Postgres also gives row-level
+locking (`SELECT ... FOR UPDATE SKIP LOCKED`) as a built-in, correct answer to atomic
+job claiming — no need to bolt on a separate distributed lock (Redis, etc.) for that
+specific problem. Mongo would have meant simulating relational constraints by hand.
 
-**Trade-off:** Simpler operational footprint (one datastore, one source of truth for state + queue), at the cost of higher DB load under very high job throughput compared to a purpose-built broker like Redis Streams or Kafka. Acceptable for this assignment's scale; a production system at high volume would likely split hot queue state into Redis while keeping Postgres as the durable log.
+## Why UUIDs instead of auto-incrementing integers
 
-## 2. Polling over event-driven promotion
+In a system with multiple worker processes inserting/updating concurrently, UUIDs can
+be generated anywhere without coordinating on "what's the next number" — no risk of
+collision, and IDs don't leak information (e.g., total row count) the way sequential
+integers do.
 
-**Decision:** A separate poller process periodically scans for due `delayed`/`scheduled`/`recurring` jobs and promotes them to `queued`, rather than using DB triggers/LISTEN-NOTIFY or a timer-per-job.
+## Why a separate `job_executions` table instead of just fields on `jobs`
 
-**Trade-off:** Introduces up-to-`poll_interval` latency on job promotion, but is far simpler to reason about and debug than per-job timers, and scales fine since the promotion query is a single indexed range scan (`WHERE run_at <= now()`) rather than N individual timers.
+A job can fail and retry multiple times. If retry data lived directly on the `jobs` row,
+each retry would overwrite the last — you'd lose history of *why* attempt 1 and attempt 2
+failed. Splitting executions into their own table (one row per attempt) preserves full
+retry history, which is what `GET /jobs/:id` surfaces in the dashboard's job detail view.
 
-## 3. Retry policy at queue level, not job level
+## Why `scheduled_jobs` is separate from `jobs`
 
-**Decision:** `RETRY_POLICIES` is a queue-level table; individual jobs inherit their queue's strategy rather than each job carrying its own retry config.
+An `immediate` job never needs a `run_at`, `cron_expression`, or `next_run_at` — adding
+those columns directly to `jobs` would mean most rows have them permanently null. Keeping
+schedule-specific data in its own table (joined only when relevant) keeps `jobs` lean and
+keeps the "does this job have scheduling info" check explicit (`schedule: null` in the API
+response) rather than implicit via null-checking three unrelated columns.
 
-**Trade-off:** Less flexibility for one-off custom retry behavior on a single job, but avoids duplicating policy data across potentially thousands of jobs and keeps retry behavior predictable per-queue, which matches how the assignment frames retry configuration as a queue property.
+## Why `SELECT ... FOR UPDATE OF j SKIP LOCKED` for claiming, instead of an `UPDATE ... RETURNING`
 
-## 4. Recurring jobs cycle back to `scheduled`, not `completed`
+Both are valid atomic-claim patterns. `SKIP LOCKED` was chosen because it generalizes
+better once you add ordering logic (`ORDER BY priority DESC, created_at ASC`) — the
+worker needs to inspect several candidate rows and pick the best one under lock, not just
+blindly flip the first match. It's also the textbook Postgres pattern for this exact
+"job queue" use case, so it reads clearly to anyone reviewing the code.
 
-**Decision:** On successful execution, a recurring job's status returns to `scheduled` (with an updated `run_at` for the next occurrence) instead of terminating at `completed`.
+## Why retry backoff is configurable per queue, not per job
 
-**Trade-off:** Requires care to avoid the job being mistaken for "done" in dashboards/queries — status alone doesn't distinguish "finished forever" from "finished this cycle." Mitigated by keeping `type = 'recurring'` visible alongside status, and by execution history (`JOB_EXECUTIONS`) recording each individual run separately from the parent job's current status.
+Different queues represent different kinds of work with different tolerance for delay —
+an `email-queue` might want fast retries, a `report-generation` queue might want long
+exponential backoff to avoid hammering a slow downstream service. Putting the policy on
+the queue (defaulted at creation, but a `retry_policies` row is one-to-one with a queue)
+means every job in that queue inherits sensible behavior without having to specify it
+per job.
 
-## 5. Dead Letter Queue as a separate table, not a status-only flag
+## Why recurring jobs cycle back to `scheduled` instead of ever reaching `completed`
 
-**Decision:** Permanently failed jobs are recorded in a dedicated `dead_letter_queue` table (`job_id`, `reason`, `moved_at`) in addition to marking `jobs.status = 'failed'`, rather than relying on the status flag alone.
+A recurring job (e.g., "sync inventory every 5 minutes") conceptually never "finishes" —
+each run is one occurrence of an ongoing schedule. Marking it `completed` after the first
+run would be misleading and would require creating a brand new job row for every future
+occurrence, losing the job's history and identity. Instead, the worker resets it to
+`scheduled` with a freshly computed `next_run_at`, and the poller picks it back up.
 
-**Trade-off:** Kept deliberately minimal — no payload snapshot or attempt-count duplication — since `jobs.attempt_count` and `job_executions` already retain that history via `job_id`. This avoids data duplication at the cost of requiring a join back to `jobs`/`job_executions` if full context is needed when inspecting a DLQ entry. Keeps the DLQ table cheap to query for "what failed and why" while the richer audit trail (attempts, timestamps, per-attempt errors) stays in `job_executions`.
+## Why the worker and poller are separate loops, not one combined process
 
-## 6. JSONB for job payload
+They solve different problems (time-based promotion vs. claim-execute-retry) with
+different polling intervals and different failure surfaces. If job execution stalls
+(e.g., a task taking unusually long), a combined loop would also delay promoting other
+scheduled jobs — an unrelated concern. Splitting them means either can be scaled,
+restarted, or reasoned about independently, even though this deployment currently runs
+both inside the same process for hosting simplicity (see ARCHITECTURE.md).
 
-**Decision:** `jobs.payload` is JSONB rather than a fixed relational shape.
+## Why job execution is simulated rather than running real tasks
 
-**Trade-off:** Loses some type safety and can't be indexed/queried as efficiently as normalized columns, but is necessary since `immediate`, `delayed`, `recurring`, and `batch` jobs all carry structurally different data — normalizing would require a job-type-specific table per type, adding significant schema complexity for little benefit at this scale.
+The assignment is evaluating scheduler mechanics — dispatch, retries, concurrency,
+lifecycle — not any particular business task. `executeJob()` uses `payload.task` to pick
+a simulated handler with a realistic delay and a deliberate ~20% failure rate specifically
+so retry/backoff/dead-letter behavior is visibly exercisable in the dashboard, rather than
+requiring you to wire up a real failing dependency (e.g., an email provider) just to see
+the failure path work.
 
-## 7. JWT for auth, no session store
+## Trade-off acknowledged: no automatic recovery for a worker that dies mid-job
 
-**Decision:** Stateless JWT auth rather than server-side sessions.
-
-**Trade-off:** Simpler horizontal scaling (any API instance can validate a token without shared session state), at the cost of no immediate token revocation — mitigated by short token expiry.
+If a worker crashes after claiming a job but before finishing it, that job is stuck in
+`claimed`/`running` with no automatic reaper reclaiming it (see ARCHITECTURE.md's "Known
+limitation"). This was scoped out deliberately to prioritize getting the core claim →
+execute → retry → dead-letter cycle fully correct within the time available, rather than
+implementing a second recovery mechanism half-correctly. Framed as a next step if this
+were taken further, not something overlooked and unmentioned.
