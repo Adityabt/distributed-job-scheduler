@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #10131A;
+  --bg-elevated: #161B24;
+  --surface: #1B212C;
+  --surface-hover: #212836;
+  --border: #2A3140;
+  --text: #E7ECF2;
+  --text-dim: #8A93A6;
+  --text-faint: #565F72;
+  --accent: #FF7A45;
+  --accent-strong: #FF8F5E;
+  --accent-ink: #1F1006;
+  --cyan: #4FD1C5;
+  --green: #3DDC84;
+  --red: #F2545B;
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --shadow-panel: 0 10px 30px -10px rgba(0,0,0,.55);
+}
+
+body {
+  background: linear-gradient(160deg, #10131A 0%, #151A24 100%);
+}
+
+.djs {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  background: transparent;
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.djs h1, .djs h2, .djs h3, .djs .disp {
+  font-family: 'Space Grotesk', ui-sans-serif, sans-serif;
+}
+
+.djs ::selection { background: #FF7A4544; }
+
+.djs-input {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-family: inherit;
+}
+.djs-input:focus { outline: none; border-color: var(--accent); }
+
+.djs-scroll::-webkit-scrollbar { width: 6px; }
+.djs-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.djs-fade { animation: djsFade .25s ease both; }
+@keyframes djsFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.djs-pulse { animation: djsPulse 1.8s ease-in-out infinite; }
+@keyframes djsPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+.djs-btn {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  transition: all .15s ease;
+}
+.djs-btn:hover { border-color: var(--accent); color: var(--accent-strong); }
+.djs-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.djs-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  box-shadow: 0 4px 14px -4px rgba(255,122,69,.5);
+}
+.djs-btn-primary:hover { background: var(--accent-strong); color: var(--accent-ink); }
+
+.djs-row:hover { background: var(--surface-hover); }
+
+.djs-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+}
+
+@media (max-width: 720px) {
+  .djs-sidebar { display: none; }
+}
