@@ -22,5 +22,11 @@ export function useOrganizations() {
     notify('Organization created');
   }, [token, notify, loadOrgs]);
 
-  return { orgs, loadOrgs, createOrg };
+  const deleteOrg = useCallback(async (id) => {
+    await api(`/organizations/${id}`, { method: 'DELETE', token });
+    await loadOrgs();
+    notify('Organization deleted');
+  }, [token, notify, loadOrgs]);
+
+  return { orgs, loadOrgs, createOrg, deleteOrg };
 }

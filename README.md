@@ -1,92 +1,70 @@
-# Distributed Job Scheduler
 
-A production-inspired distributed job scheduling platform for reliably executing asynchronous background jobs across multiple workers.
+# Relay — Distributed Job Scheduler
 
-## Features
-
-- **Auth & Project Management** — JWT-based authentication; organizations own projects; projects own queues.
-- **Queue Management** — priority, concurrency limits, retry policy, pause/resume, live statistics.
-- **Job Types** — immediate, delayed, scheduled, recurring (cron), and batch jobs via REST API.
-- **Worker Service** — polls queues, atomically claims jobs (`SELECT ... FOR UPDATE SKIP LOCKED`), executes concurrently, sends heartbeats, supports graceful shutdown.
-- **Job Lifecycle** — `Queued → Scheduled → Claimed → Running → Completed`, with retries and Dead Letter Queue (DLQ) for permanent failures.
-- **Retry Strategies** — fixed delay, linear backoff, exponential backoff (configurable per queue).
-- **Observability** — execution logs, retry history, worker assignment, timestamps, and metrics per job.
+A full-stack distributed job scheduler: create immediate, delayed, recurring, and batch jobs, and watch them get claimed, executed, retried with exponential backoff, and tracked through their full lifecycle.
 
 ## Architecture
 
-See `ARCHITECTURE.md` and `ER_DIAGRAM.md`.
+- **API server** (Express + PostgreSQL) — auth, org/project/queue CRUD, job creation
+- **Worker** (`src/workers/jobWorker.js`) — claims queued jobs, executes them, retries failures with exponential backoff, tracks execution history
+- **Poller** (`src/workers/scheduledPoller.js`) — promotes due delayed/recurring jobs from `scheduled` to `queued`; recurring jobs cycle back to `scheduled` after each run
+- **Frontend** (React + Vite) — dashboard for managing orgs/projects/queues/jobs
 
-## Tech Stack
+Three separate long-running processes: **server**, **worker**, **poller**. All three must be running for the system to actually process jobs.
 
-- **Backend:** Node.js, Express, PostgreSQL
-- **Auth:** JWT
-- **Worker/Poller:** standalone Node processes polling the shared DB
-
-## Setup
-
-### Prerequisites
-- Node.js 18+
-- PostgreSQL 14+
-
-### Installation
+## Local setup
 
 ```bash
-git clone <repo-url>
+# Backend
 cd backend
 npm install
+cp .env.example .env   # set DATABASE_URL, JWT_SECRET
+psql $DATABASE_URL -f schema.sql   # or your migration command
+
+npm run dev        # API server
+npm run worker     # in a separate terminal
+npm run poller     # in a separate terminal
+
+# Frontend
+cd frontend
+npm install
+npm run dev
 ```
 
-### Environment variables (`.env`)
+Add these to `backend/package.json` scripts if not already present:
 
-```
-DATABASE_URL=postgresql://<user>@localhost:5432/job_scheduler
-JWT_SECRET=<your-secret>
-PORT=3000
-POLL_INTERVAL_MS=5000
+```json
+"worker": "node src/workers/jobWorker.js",
+"poller": "node src/workers/scheduledPoller.js"
 ```
 
-### Database setup
+## Job lifecycle
 
-```bash
-psql -U <user> -c "CREATE DATABASE job_scheduler;"
-psql -U <user> -d job_scheduler -f schema.sql
-```
+`queued`/`scheduled` → `claimed` → `running` → `completed` | `failed` (retries with exponential backoff up to `max_attempts`) → `dead_letter` (after exhausting retries)
 
-### Running the services
+Recurring jobs return to `scheduled` after each successful run instead of terminating.
 
-Each of these runs in its own terminal tab:
+## Deployment
 
-```bash
-# API server
-node src/index.js
+**Database:** any managed Postgres (Render, Railway, Supabase, Neon). Run your schema/migrations against it once.
 
-# Worker (claims and executes jobs)
-node src/workers/jobWorker.js
+**Backend (server + worker + poller):** these are 3 separate Node processes sharing the same codebase and `DATABASE_URL`. Simplest path — Render or Railway, since both support multiple services from one repo:
 
-# Poller (promotes due delayed/scheduled/recurring jobs to queued)
-node src/workers/scheduledPoller.js
-```
+1. Push backend to GitHub.
+2. Create 3 services from the same repo (Render: "Web Service" for the API, 2× "Background Worker" for worker/poller). Railway: same idea, 3 separate services.
+3. Each service gets the same env vars: `DATABASE_URL`, `JWT_SECRET`.
+4. Start commands: API → `npm run dev` (or `node src/app.js`/your entry file), worker → `npm run worker`, poller → `npm run poller`.
+5. Only the API service needs a public port/URL — worker and poller run silently in the background with no HTTP endpoint.
 
-### Verifying it works
+**Frontend:** Vercel or Netlify, pointed at the `frontend/` folder.
 
-1. Create a recurring job via the API.
-2. Poller promotes it to `queued` when due.
-3. Worker claims and executes it.
-4. On success, it cycles back to `scheduled` for the next run.
-5. On repeated failure past `max_retries`, it's moved to `dead_letter_queue`.
+1. Set build command `npm run build`, output dir `dist`.
+2. Set an environment variable for your deployed API URL, and update `src/api/client.js`'s `API_BASE` to read from it (`import.meta.env.VITE_API_BASE`) instead of the hardcoded `localhost:5001`.
+3. Deploy.
 
-## API Documentation
+**Order matters:** deploy DB → backend (server+worker+poller) → get the live API URL → set it in frontend env → deploy frontend.
 
-See `API_DOCS.md`.
+## Known limitations
 
-## Design Decisions
-
-See `DESIGN_DECISIONS.md` for major trade-offs (atomic job claiming, retry backoff strategy, schema normalization choices).
-
-## Testing
-
-```bash
-npm test
-```
-
-Covers: atomic job claiming (no double-execution under concurrent workers), retry/backoff calculation, recurring job cycle-back behavior, DLQ insertion on retry exhaustion.
+- `executeJob()` simulates task execution (weighted random success/failure) rather than performing real work — the scheduler's job is dispatch/lifecycle management, not the task logic itself, matching how real schedulers (Sidekiq, Celery, BullMQ) separate these concerns.
+- `job_executions` stores status and error message, not arbitrary output/results.

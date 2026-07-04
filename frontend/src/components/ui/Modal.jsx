@@ -10,13 +10,21 @@ export default function Modal({ title, children, onClose, wide }) {
       <div
         onClick={(e) => e.stopPropagation()}
         className="djs-fade"
-        style={{ width: wide ? 560 : 380, maxWidth: '100%', border: '1px solid #1E2932', borderRadius: 6, background: '#0E1419' }}
+        style={{
+          width: wide ? 560 : 380, maxWidth: '100%',
+          maxHeight: 'calc(100vh - 40px)',
+          border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-elevated)',
+          display: 'flex', flexDirection: 'column',
+        }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid #1E2932' }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+        }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>{title}</span>
           <IconButton onClick={onClose} title="Close"><X size={13} /></IconButton>
         </div>
-        <div style={{ padding: 16 }}>{children}</div>
+        <div className="djs-scroll" style={{ padding: 16, overflowY: 'auto' }}>{children}</div>
       </div>
     </div>
   );

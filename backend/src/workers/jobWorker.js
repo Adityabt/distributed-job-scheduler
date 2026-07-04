@@ -61,7 +61,7 @@ async function claimJob() {
     const job = result.rows[0];
 
     await client.query(
-      `UPDATE jobs SET status = 'running', claimed_by = $1, updated_at = now() WHERE id = $2`,
+      `UPDATE jobs SET status = 'claimed', claimed_by = $1, updated_at = now() WHERE id = $2`,
       [WORKER_UUID, job.id]
     );
 
@@ -76,11 +76,27 @@ async function claimJob() {
 }
 
 async function executeJob(job) {
-  // Simulated execution — real task logic would dispatch based on payload.task
-  const shouldFail = Math.random() < 0.2; // 20% simulated failure rate
-  await new Promise((r) => setTimeout(r, 500));
-  if (shouldFail) throw new Error('Simulated task failure');
-  return { output: `Processed ${job.payload?.task || 'job'}` };
+  const task = job.payload?.task || 'generic_task';
+  const durationMs = 3000 + Math.floor(Math.random() * 2000); // 3-5s, so it's visible in the dashboard
+  const shouldFail = Math.random() < 0.2;
+
+  console.log(`[worker] Running task "${task}" for job ${job.id}...`);
+  await new Promise((r) => setTimeout(r, durationMs));
+
+  if (shouldFail) throw new Error(`Simulated failure while running "${task}"`);
+
+  switch (task) {
+    case 'send_email':
+      return { output: `Sent email to ${job.payload?.to || 'unknown recipient'}` };
+    case 'sync_inventory':
+      return { output: 'Inventory sync completed' };
+    case 'resize_image':
+      return { output: `Resized ${job.payload?.file || 'image'} to ${job.payload?.width || '?'}px` };
+    case 'generate_report':
+      return { output: `Generated ${job.payload?.type || ''} report` };
+    default:
+      return { output: 'Completed generic task' };
+  }
 }
 
 function computeBackoffSeconds(strategyType, baseDelay, attemptNumber) {
@@ -96,15 +112,11 @@ function computeBackoffSeconds(strategyType, baseDelay, attemptNumber) {
 
 async function handleSuccess(job, result) {
   const finalStatus = job.type === 'recurring' ? 'scheduled' : 'completed';
+  const resetAttempts = job.type === 'recurring' ? 0 : job.attempt_count;
 
   await pool.query(
-    `UPDATE jobs SET status = $1, updated_at = now() WHERE id = $2`,
-    [finalStatus, job.id]
-  );
-  await pool.query(
-    `INSERT INTO job_executions (job_id, worker_id, attempt_number, status, started_at, finished_at)
-     VALUES ($1, $2, $3, 'succeeded', now(), now())`,
-    [job.id, WORKER_UUID, job.attempt_count + 1]
+    `UPDATE jobs SET status = $1, attempt_count = $2, updated_at = now() WHERE id = $3`,
+    [finalStatus, resetAttempts, job.id]
   );
 }
 
@@ -169,8 +181,9 @@ async function runLoop() {
 
       if (job) {
         console.log(`[${WORKER_LABEL}] Claimed job ${job.id} (${job.type})`);
+        await pool.query(`UPDATE jobs SET status = 'running', updated_at = now() WHERE id = $1`, [job.id]);
         try {
-          const result = await executeJob(job);
+    const result = await executeJob(job);
           await handleSuccess(job, result);
           console.log(`[${WORKER_LABEL}] Job ${job.id} completed`);
         } catch (err) {

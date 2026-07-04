@@ -95,4 +95,36 @@ async function updateQueueStatus(req, res) {
   }
 }
 
-module.exports = { createQueue, listQueues, updateQueueStatus };
+async function deleteQueue(req, res) {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const owns = await client.query(
+      `SELECT q.id FROM queues q
+       JOIN projects p ON q.project_id = p.id
+       JOIN organizations o ON p.organization_id = o.id
+       WHERE q.id = $1 AND o.owner_id = $2`,
+      [id, req.user.id]
+    );
+    if (owns.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Queue not found' });
+    }
+
+    await client.query(`DELETE FROM jobs WHERE queue_id = $1`, [id]);
+    await client.query(`DELETE FROM queues WHERE id = $1`, [id]);
+
+    await client.query('COMMIT');
+    res.status(204).send();
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { createQueue, listQueues, updateQueueStatus, deleteQueue };

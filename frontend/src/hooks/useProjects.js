@@ -26,5 +26,11 @@ export function useProjects() {
     notify('Project created');
   }, [token, notify, loadProjects]);
 
-  return { projects, loadProjects, createProject };
+  const deleteProject = useCallback(async (id, organizationId) => {
+    await api(`/projects/${id}`, { method: 'DELETE', token });
+    await loadProjects(organizationId);
+    notify('Project deleted');
+  }, [token, notify, loadProjects]);
+
+  return { projects, loadProjects, createProject, deleteProject };
 }

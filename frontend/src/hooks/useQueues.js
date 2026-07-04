@@ -33,5 +33,11 @@ export function useQueues() {
     notify(`Queue ${status}`);
   }, [token, notify, loadQueues]);
 
-  return { queues, loadQueues, createQueue, toggleQueueStatus };
+  const deleteQueue = useCallback(async (id, projectId) => {
+    await api(`/queues/${id}`, { method: 'DELETE', token });
+    await loadQueues(projectId);
+    notify('Queue deleted');
+  }, [token, notify, loadQueues]);
+
+  return { queues, loadQueues, createQueue, toggleQueueStatus, deleteQueue };
 }

@@ -33,5 +33,16 @@ export function useJobs() {
 
   const closeJobDetail = useCallback(() => setJobDetail(null), []);
 
-  return { jobs, loadJobs, createJob, jobDetail, openJobDetail, closeJobDetail };
+  const deleteJob = useCallback(async (id) => {
+    try {
+      await api(`/jobs/${id}`, { method: 'DELETE', token });
+      notify('Job deleted');
+      setJobDetail(null);
+    } catch (err) {
+      notify(err.message, true);
+      throw err;
+    }
+  }, [token, notify]);
+
+  return { jobs, loadJobs, createJob, jobDetail, openJobDetail, closeJobDetail, deleteJob };
 }

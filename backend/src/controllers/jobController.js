@@ -202,4 +202,30 @@ async function getJobDetail(req, res) {
   }
 }
 
-module.exports = { createJob, createBatchJobs, listJobs, getJobDetail };
+async function deleteJob(req, res) {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM jobs j
+       USING queues q, projects p, organizations o
+       WHERE j.queue_id = q.id AND q.project_id = p.id AND p.organization_id = o.id
+         AND j.id = $1 AND o.owner_id = $2
+       RETURNING j.id`,
+      [id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    if (err.code === '22P02') {
+      return res.status(400).json({ error: 'Invalid job id' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+module.exports = { createJob, createBatchJobs, listJobs, getJobDetail, deleteJob };
