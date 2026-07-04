@@ -21,9 +21,9 @@ import ToastViewport from "./components/ui/ToastViewport";
 export default function App() {
   const { token } = useAuth();
 
-  const { orgs, loadOrgs, createOrg } = useOrganizations();
-  const { projects, loadProjects, createProject } = useProjects();
-  const { queues, loadQueues, createQueue, toggleQueueStatus } = useQueues();
+  const { orgs, loadOrgs, createOrg, deleteOrg } = useOrganizations();
+const { projects, loadProjects, createProject, deleteProject } = useProjects();
+const { queues, loadQueues, createQueue, toggleQueueStatus, deleteQueue } = useQueues();
   const {
     jobs,
     loadJobs,
@@ -91,19 +91,31 @@ export default function App() {
           style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 20 }}
         >
           <Sidebar
-            orgs={orgs}
-            activeOrg={activeOrg}
-            onSelectOrg={selectOrg}
-            onNewOrg={() => setShowNewOrg(true)}
-            projects={projects}
-            activeProject={activeProject}
-            onSelectProject={selectProject}
-            onNewProject={() => setShowNewProject(true)}
-            queues={queues}
-            activeQueue={activeQueue}
-            onSelectQueue={selectQueue}
-            onNewQueue={() => setShowNewQueue(true)}
-          />
+  orgs={orgs}
+  activeOrg={activeOrg}
+  onSelectOrg={selectOrg}
+  onNewOrg={() => setShowNewOrg(true)}
+  onDeleteOrg={async (id) => {
+    await deleteOrg(id);
+    if (activeOrg?.id === id) { setActiveOrg(null); setActiveProject(null); setActiveQueue(null); }
+  }}
+  projects={projects}
+  activeProject={activeProject}
+  onSelectProject={selectProject}
+  onNewProject={() => setShowNewProject(true)}
+  onDeleteProject={async (id) => {
+    await deleteProject(id, activeOrg.id);
+    if (activeProject?.id === id) { setActiveProject(null); setActiveQueue(null); }
+  }}
+  queues={queues}
+  activeQueue={activeQueue}
+  onSelectQueue={selectQueue}
+  onNewQueue={() => setShowNewQueue(true)}
+  onDeleteQueue={async (id) => {
+    await deleteQueue(id, activeProject.id);
+    if (activeQueue?.id === id) setActiveQueue(null);
+  }}
+/>
 
           <div>
             {!activeQueue ? (
