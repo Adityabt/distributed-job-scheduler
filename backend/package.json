@@ -4,9 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
-  },
+  "start": "node src/server.js",
+  "dev": "nodemon src/server.js",
+  "worker": "node src/workers/jobWorker.js",
+  "poller": "node src/workers/scheduledPoller.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
